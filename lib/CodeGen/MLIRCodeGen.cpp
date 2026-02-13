@@ -138,6 +138,9 @@ void MLIRCodeGen::initBuiltinFuncMap() {
     {"mix", [](mlir::MLIRContext &context, mlir::OpBuilder &builder, mlir::ValueRange operands) {
       return builder.create<spirv::GLFMixOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1], operands[2]);
     }},
+    {"mod", [](mlir::MLIRContext &context, mlir::OpBuilder &builder, mlir::ValueRange operands) {
+      return builder.create<spirv::GLFModOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1]);
+    }},
     {"pow", [](mlir::MLIRContext &context, mlir::OpBuilder &builder, mlir::ValueRange operands) {
       return builder.create<spirv::GLPowOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1]);
     }},
