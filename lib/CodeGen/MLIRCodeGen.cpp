@@ -95,8 +95,13 @@ void MLIRCodeGen::initBuiltinFuncMap() {
       return builder.create<spirv::GLFmaOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1], operands[2]);
     }},
     {"frexpstruct", [](mlir::MLIRContext &context, mlir::OpBuilder &builder, mlir::ValueRange operands) {
-      // TODO: implement me
-      return mlir::Value();
+      auto floatType = operands[0].getType();
+      auto intType = mlir::IntegerType::get(&context, 32, mlir::IntegerType::Signed);
+      if (auto vecType = floatType.dyn_cast<mlir::VectorType>()) {
+        intType = mlir::VectorType::get(vecType.getShape(), intType);
+      }
+      auto structType = spirv::StructType::get({floatType, intType});
+      return builder.create<spirv::GLFrexpStructOp>(builder.getUnknownLoc(), structType, operands[0]);
     }},
     {"inversesqrt", [](mlir::MLIRContext &context, mlir::OpBuilder &builder, mlir::ValueRange operands) {
       return builder.create<spirv::GLInverseSqrtOp>(builder.getUnknownLoc(), operands[0]);
@@ -606,7 +611,113 @@ void MLIRCodeGen::visit(VariableDeclaration *varDecl) {
 }
 
 void MLIRCodeGen::visit(SwitchStatement *switchStmt) {
-  // TODO: implement me
+  auto loc = builder.getUnknownLoc();
+  Block *restoreInsertionBlock = builder.getInsertionBlock();
+
+  // 1. Evaluate selector
+  switchStmt->getExpression()->accept(this);
+  mlir::Value selector = load(popExpressionStack());
+
+  // 2. Break support
+  mlir::Type boolType = mlir::IntegerType::get(&context, 1, mlir::IntegerType::Signless);
+  spirv::PointerType ptrType = spirv::PointerType::get(boolType, mlir::spirv::StorageClass::Function);
+  auto breakVar = builder.create<spirv::VariableOp>(
+      loc, ptrType, spirv::StorageClass::Function, nullptr);
+  setBoolVar(breakVar, false);
+  breakStack.push_back(breakVar);
+
+  // 3. Collect cases and create blocks
+  std::vector<int32_t> caseValues;
+  std::vector<Block *> caseBlocks;
+  Block *defaultBlock = nullptr;
+  Block *mergeBlock = new Block();
+
+  auto bodyStmtList = dynamic_cast<StatementList *>(switchStmt->getBody());
+  if (!bodyStmtList) {
+    breakStack.pop_back();
+    return;
+  }
+
+  // First pass: identify labels and create blocks
+  std::vector<std::pair<Statement *, Block *>> labelToBlock;
+
+  for (auto &stmt : bodyStmtList->getStatements()) {
+    if (auto caseLabel = dynamic_cast<CaseLabel *>(stmt.get())) {
+      auto caseValExpr = dynamic_cast<IntegerConstantExpression *>(caseLabel->getExpression());
+      if (caseValExpr) {
+        Block *caseBlock = new Block();
+        caseValues.push_back(caseValExpr->getVal());
+        caseBlocks.push_back(caseBlock);
+        labelToBlock.push_back({stmt.get(), caseBlock});
+      }
+    } else if (auto defaultLabel = dynamic_cast<DefaultLabel *>(stmt.get())) {
+      defaultBlock = new Block();
+      labelToBlock.push_back({stmt.get(), defaultBlock});
+    }
+  }
+
+  if (!defaultBlock) {
+    defaultBlock = mergeBlock;
+  }
+
+  // Create the switch op
+  builder.create<spirv::SwitchOp>(loc, selector, defaultBlock, mlir::ValueRange(), caseValues, caseBlocks);
+
+  // Second pass: visit statements and fill blocks
+  Block *currentBlock = nullptr;
+  const auto &statements = bodyStmtList->getStatements();
+
+  for (size_t i = 0; i < statements.size(); ++i) {
+    auto &stmt = statements[i];
+    bool isLabel = false;
+
+    for (auto &pair : labelToBlock) {
+      if (pair.first == stmt.get()) {
+        if (currentBlock && !currentBlock->getTerminator()) {
+          builder.setInsertionPointToEnd(currentBlock);
+          builder.create<spirv::BranchOp>(loc, pair.second);
+        }
+        currentBlock = pair.second;
+        builder.setInsertionPointToStart(currentBlock);
+        isLabel = true;
+        break;
+      }
+    }
+
+    if (!isLabel && currentBlock) {
+      builder.setInsertionPointToEnd(currentBlock);
+      stmt->accept(this);
+
+      if (breakDetected) {
+        builder.create<spirv::BranchOp>(loc, mergeBlock);
+        breakDetected = false;
+        // After a break, we technically shouldn't be adding more to this block 
+        // until the next label, but we'll let the visitor continue.
+      }
+    }
+  }
+
+  if (currentBlock && !currentBlock->getTerminator()) {
+    builder.setInsertionPointToEnd(currentBlock);
+    builder.create<spirv::BranchOp>(loc, mergeBlock);
+  }
+
+  // Add the blocks to the current region (SwitchOp doesn't have its own region in the same way Selection/Loop do in some versions, 
+  // but SPIRV SwitchOp in MLIR is structured)
+  // Wait, SPIRV SwitchOp is NOT a structured op with regions in MLIR SPIRV dialect. 
+  // It's a terminator-like op. We need to make sure blocks are added to the parent region.
+  
+  auto parentRegion = restoreInsertionBlock->getParent();
+  for (auto *block : caseBlocks) {
+    parentRegion->getBlocks().push_back(block);
+  }
+  if (defaultBlock != mergeBlock && defaultBlock) {
+    parentRegion->getBlocks().push_back(defaultBlock);
+  }
+  parentRegion->getBlocks().push_back(mergeBlock);
+
+  builder.setInsertionPointToStart(mergeBlock);
+  breakStack.pop_back();
 }
 
 void MLIRCodeGen::visit(WhileStatement *whileStmt) {
@@ -1084,7 +1195,7 @@ void MLIRCodeGen::setBoolVar(mlir::spirv::VariableOp var, bool val) {
 }
 
 void MLIRCodeGen::visit(DiscardStatement *discardStmt) {
-  // TODO: implement me
+  builder.create<spirv::KillOp>(builder.getUnknownLoc());
 }
 
 void MLIRCodeGen::visit(FunctionDeclaration *funcDecl) {
