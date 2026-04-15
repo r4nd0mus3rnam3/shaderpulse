@@ -144,7 +144,7 @@ void MLIRCodeGen::initBuiltinFuncMap() {
       return builder.create<spirv::GLFMixOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1], operands[2]);
     }},
     {"mod", [](mlir::MLIRContext &context, mlir::OpBuilder &builder, mlir::ValueRange operands) {
-      return builder.create<spirv::GLFModOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1]);
+      return builder.create<spirv::FModOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1]);
     }},
     {"pow", [](mlir::MLIRContext &context, mlir::OpBuilder &builder, mlir::ValueRange operands) {
       return builder.create<spirv::GLPowOp>(builder.getUnknownLoc(), operands[0].getType(), operands[0], operands[1]);
@@ -1191,7 +1191,7 @@ void MLIRCodeGen::setBoolVar(mlir::spirv::VariableOp var, bool val) {
 }
 
 void MLIRCodeGen::visit(DiscardStatement *discardStmt) {
-  builder.create<spirv::KillOp>(builder.getUnknownLoc());
+  builder.create<mlir::OpTerminateInvocation>(builder.getUnknownLoc());
 }
 
 void MLIRCodeGen::visit(FunctionDeclaration *funcDecl) {
