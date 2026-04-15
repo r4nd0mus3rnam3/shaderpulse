@@ -701,12 +701,8 @@ void MLIRCodeGen::visit(SwitchStatement *switchStmt) {
     builder.setInsertionPointToEnd(currentBlock);
     builder.create<spirv::BranchOp>(loc, mergeBlock);
   }
-
-  // Add the blocks to the current region (SwitchOp doesn't have its own region in the same way Selection/Loop do in some versions, 
-  // but SPIRV SwitchOp in MLIR is structured)
-  // Wait, SPIRV SwitchOp is NOT a structured op with regions in MLIR SPIRV dialect. 
-  // It's a terminator-like op. We need to make sure blocks are added to the parent region.
-  
+ 
+  // Fill the parent region
   auto parentRegion = restoreInsertionBlock->getParent();
   for (auto *block : caseBlocks) {
     parentRegion->getBlocks().push_back(block);
