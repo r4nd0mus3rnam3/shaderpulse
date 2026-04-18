@@ -98,7 +98,7 @@ void MLIRCodeGen::initBuiltinFuncMap() {
       auto floatType = operands[0].getType();
       auto intType = mlir::IntegerType::get(&context, 32, mlir::IntegerType::Signed);
       if (auto vecType = floatType.dyn_cast<mlir::VectorType>()) {
-        intType = mlir::VectorType::get(vecType.getShape(), intType);
+        vecType = mlir::VectorType::get(vecType.getShape(), intType);
       }
       auto structType = spirv::StructType::get({floatType, intType});
       return builder.create<spirv::GLFrexpStructOp>(builder.getUnknownLoc(), structType, operands[0]);
@@ -661,7 +661,8 @@ void MLIRCodeGen::visit(SwitchStatement *switchStmt) {
   }
 
   // Create the switch op
-  builder.create<spirv::SwitchOp>(loc, selector, defaultBlock, mlir::ValueRange(), caseValues, caseBlocks);
+  // BUG: following line crashes; SwitchOp not found in my build of MLIR.
+  //builder.create<spirv::SwitchOp>(loc, selector, defaultBlock, mlir::ValueRange(), caseValues, caseBlocks);
 
   // Second pass: visit statements and fill blocks
   Block *currentBlock = nullptr;
@@ -1191,7 +1192,8 @@ void MLIRCodeGen::setBoolVar(mlir::spirv::VariableOp var, bool val) {
 }
 
 void MLIRCodeGen::visit(DiscardStatement *discardStmt) {
-  builder.create<mlir::OpTerminateInvocation>(builder.getUnknownLoc());
+  // Not implementing fragment shaders now.
+  //builder.create<mlir::OpTerminateInvocation>(builder.getUnknownLoc());
 }
 
 void MLIRCodeGen::visit(FunctionDeclaration *funcDecl) {
